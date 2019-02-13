@@ -731,7 +731,12 @@ namespace Microsoft.AspNetCore.Components.Test
             Assert.Equal(2, state);
         }
 
-        // The delegate target points to the outer component
+        // This tests the behaviour of dispatching an event when the event-handler
+        // delegate is a bound-delegate with a target that points to the parent component.
+        //
+        // This is a very common case when a component accepts a delegate parameter that
+        // will be hooked up to a DOM event handler. It's essential that this will dispatch
+        // to the parent component so that manual StateHasChanged calls are not necessary.
         [Fact]
         public async Task EventDispatching_DelegateParameter_MethodToDelegateConversion()
         {
@@ -752,7 +757,7 @@ namespace Microsoft.AspNetCore.Components.Test
             };
 
             var parentComponentId = renderer.AssignRootComponentId(parentComponent);
-            parentComponent.TriggerRender();
+            await parentComponent.TriggerRenderAsync();
 
             var eventHandlerId = renderer.Batches[0]
                 .ReferenceFrames
@@ -768,7 +773,11 @@ namespace Microsoft.AspNetCore.Components.Test
             Assert.Equal(1, outerStateChangeCount);
         }
 
-        // The delegate target points to null
+        // This is the inverse case of EventDispatching_DelegateParameter_MethodToDelegateConversion
+        // where the event-handling delegate has a target that is not a component.
+        //
+        // This is a degenerate case that we don't expect to occur in applications often,
+        // but it's important to verify the semantics.
         [Fact]
         public async Task EventDispatching_DelegateParameter_NoTargetLambda()
         {
@@ -792,7 +801,7 @@ namespace Microsoft.AspNetCore.Components.Test
             };
 
             var parentComponentId = renderer.AssignRootComponentId(parentComponent);
-            parentComponent.TriggerRender();
+            await parentComponent.TriggerRenderAsync();
 
             var eventHandlerId = renderer.Batches[0]
                 .ReferenceFrames
@@ -808,7 +817,9 @@ namespace Microsoft.AspNetCore.Components.Test
             Assert.Equal(0, outerStateChangeCount);
         }
 
-        // The delegate target points to the outer component
+        // This is a similar case to EventDispatching_DelegateParameter_MethodToDelegateConversion
+        // but uses our event handling infrastructure to achieve the same effect. The call to CreateDelegate
+        // is not necessary for correctness in this case - it should just no op.
         [Fact]
         public async Task EventDispatching_EventHandlerInvoker_MethodToDelegateConversion()
         {
@@ -829,7 +840,7 @@ namespace Microsoft.AspNetCore.Components.Test
             };
 
             var parentComponentId = renderer.AssignRootComponentId(parentComponent);
-            parentComponent.TriggerRender();
+            await parentComponent.TriggerRenderAsync();
 
             var eventHandlerId = renderer.Batches[0]
                 .ReferenceFrames
@@ -845,7 +856,8 @@ namespace Microsoft.AspNetCore.Components.Test
             Assert.Equal(1, outerStateChangeCount);
         }
 
-        // The delegate target points to null
+        // This is a similar case to EventDispatching_DelegateParameter_NoTargetLambda but it uses
+        // our event-handling infrastructure to avoid the need for a manual StateHasChanged()
         [Fact]
         public async Task EventDispatching_EventHandlerInvoker_NoTargetLambda()
         {
@@ -869,7 +881,7 @@ namespace Microsoft.AspNetCore.Components.Test
             };
 
             var parentComponentId = renderer.AssignRootComponentId(parentComponent);
-            parentComponent.TriggerRender();
+            await parentComponent.TriggerRenderAsync();
 
             var eventHandlerId = renderer.Batches[0]
                 .ReferenceFrames
@@ -1283,9 +1295,10 @@ namespace Microsoft.AspNetCore.Components.Test
             Assert.Single(renderer.Batches);
 
             // Act
-            await renderer.DispatchEventAsync(origEventHandlerId, args: null);
+            var task = renderer.DispatchEventAsync(origEventHandlerId, args: null);
 
             // Assert
+            Assert.Equal(TaskStatus.RanToCompletion, task.Status); // Synchronous
             Assert.Equal(2, renderer.Batches.Count);
             var batch = renderer.Batches.Last();
             Assert.Collection(batch.DiffsInOrder,
@@ -1325,6 +1338,8 @@ namespace Microsoft.AspNetCore.Components.Test
                             "Render count: 3");
                     });
                 });
+
+            await task; // Does not thing
         }
 
         [Fact]
@@ -2181,11 +2196,10 @@ namespace Microsoft.AspNetCore.Components.Test
 
             public Task SetParametersAsync(ParameterCollection parameters)
             {
-                TriggerRender();
-                return Task.CompletedTask;
+                return TriggerRenderAsync();
             }
 
-            public void TriggerRender() => _renderHandle.Render(RenderFragment);
+            public Task TriggerRenderAsync() => _renderHandle.Invoke(() => _renderHandle.Render(RenderFragment));
         }
 
         private void AssertStream(int expectedId, (int id, NestedAsyncComponent.EventType @event)[] logStream)

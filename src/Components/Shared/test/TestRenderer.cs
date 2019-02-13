@@ -46,11 +46,6 @@ namespace Microsoft.AspNetCore.Components.Test.Helpers
         public T InstantiateComponent<T>() where T : IComponent
             => (T)InstantiateComponent(typeof(T));
 
-        public Task WaitForAsyncWork()
-        {
-            return ProcessAsynchronousWork();
-        }
-
         protected override Task UpdateDisplayAsync(in RenderBatch renderBatch)
         {
             OnUpdateDisplay?.Invoke(renderBatch);
