@@ -274,32 +274,47 @@ namespace Microsoft.AspNetCore.Components.Rendering
         {
             EnsureSynchronizationContext();
 
-            if (_eventBindings.TryGetValue(eventHandlerId, out var binding))
-            {
-                // The event handler might request multiple renders in sequence. Capture them
-                // all in a single batch.
-                Task task = null;
-                try
-                {
-                    _isBatchInProgress = true;
-                    task = ComponentBase.DispatchStateChangeAsync(binding.Delegate.Target, binding, eventArgs);
-                }
-                catch (Exception ex) when (!task.IsCanceled)
-                {
-                    HandleException(ex);
-                }
-                finally
-                {
-                    _isBatchInProgress = false;
-                    ProcessRenderQueue();
-                }
-
-                return GetErrorHandledTask(task);
-            }
-            else
+            if (!_eventBindings.TryGetValue(eventHandlerId, out var binding))
             {
                 throw new ArgumentException($"There is no event handler with ID {eventHandlerId}");
             }
+                
+            Task task = null;
+            try
+            {
+                // The event handler might request multiple renders in sequence. Capture them
+                // all in a single batch.
+                _isBatchInProgress = true;
+
+                task = ComponentBase.DispatchStateChangeAsync(binding.Delegate.Target, binding, eventArgs);
+            }
+            catch (OperationCanceledException)
+            {
+                // If cancellation occurs we don't want to report it as an error.
+                //
+                // Return the completed task since there's nothing to await (synchronous cancellation).
+                return Task.CompletedTask;
+            }
+            catch (Exception ex)
+            {
+                // This was a synchronous exception, report this through the error handling path.
+                HandleException(ex);
+
+                // Return the completed task since there's nothing to await (synchronous exception).
+                return Task.CompletedTask;
+            }
+            finally
+            {
+                _isBatchInProgress = false;
+
+                // Since the task has yielded - process any queued rendering work before we return control
+                // to the caller.
+                ProcessRenderQueue();
+            }
+
+            // Task completed synchronously or is still running. We already processed all of the rendering
+            // work that was queued so let our error handler deal with it.
+            return GetErrorHandledTask(task);       
         }
 
         /// <summary>
